@@ -11,7 +11,7 @@ import {
 import { shortcutEntryId } from "main/steam/appid";
 import {
   getSteamRoot,
-  getActiveUserId,
+  listSteamUsers,
   isSteamRunning,
 } from "main/steam/steam-install";
 import {
@@ -65,12 +65,31 @@ interface SteamContext {
   shortcutsPath: string;
 }
 
-function resolveContext(): SteamContext {
+/**
+ * The account to work on: the requested one when it exists on this
+ * machine, else the best guess. A stale requested id (remembered from a
+ * preference, or an account removed meanwhile) falls back rather than
+ * failing, so the dialog always opens on something.
+ */
+function pickUserId(root: string, requested?: string | null): string | null {
+  const users = listSteamUsers(root);
+  if (requested && users.some((u) => u.id === requested)) {
+    return requested;
+  }
+  if (requested) {
+    logger.warn(
+      `requested Steam account ${requested} not found, using default`
+    );
+  }
+  return users[0]?.id ?? null;
+}
+
+function resolveContext(requestedUserId?: string | null): SteamContext {
   const root = getSteamRoot();
   if (!root) {
     throw new SteamError("no-steam");
   }
-  const userId = getActiveUserId(root);
+  const userId = pickUserId(root, requestedUserId);
   if (!userId) {
     throw new SteamError("no-user");
   }
@@ -417,6 +436,8 @@ export interface ApplyShortcutsInput {
   repairGameIds: number[];
   /** game ids whose shortcuts should be removed */
   removeGameIds: number[];
+  /** account to write to; the default account when omitted or unknown */
+  userId?: string | null;
   /** reports completed games while ensuring shortcut data and artwork */
   onProgress?: (completed: number, total: number) => void;
 }
@@ -439,7 +460,7 @@ async function performApply(input: ApplyShortcutsInput): Promise<void> {
     // made while it runs
     throw new SteamError("steam-running");
   }
-  const ctx = resolveContext();
+  const ctx = resolveContext(input.userId);
   const root = readShortcutsFile(ctx.shortcutsPath);
   const table = getShortcutsTable(root);
 
@@ -760,11 +781,24 @@ function planCompatToolSync(
   return sync;
 }
 
+export interface SnapshotOptions {
+  /** account to describe; see pickUserId for the fallback */
+  userId?: string | null;
+  /**
+   * whether Steam is running, when the caller already knows: enumerating
+   * processes takes hundreds of milliseconds
+   */
+  steamRunning?: boolean;
+}
+
 /** never throws: every failure becomes a snapshot field */
-export async function getSnapshot(): Promise<SteamShortcutsSnapshot> {
+export async function getSnapshot(
+  options: SnapshotOptions = {}
+): Promise<SteamShortcutsSnapshot> {
   const snapshot: SteamShortcutsSnapshot = {
     steamRoot: null,
     userId: null,
+    users: [],
     shortcutsPath: null,
     fileExists: false,
     fileSize: null,
@@ -777,17 +811,22 @@ export async function getSnapshot(): Promise<SteamShortcutsSnapshot> {
     entries: [],
   };
 
-  try {
-    snapshot.steamRunning = await isSteamRunning();
-  } catch (e) {
-    logger.warn(`could not check for running Steam: ${e}`);
+  if (options.steamRunning !== undefined) {
+    snapshot.steamRunning = options.steamRunning;
+  } else {
+    try {
+      snapshot.steamRunning = await isSteamRunning();
+    } catch (e) {
+      logger.warn(`could not check for running Steam: ${e}`);
+    }
   }
 
   snapshot.steamRoot = getSteamRoot();
   if (!snapshot.steamRoot) {
     return snapshot;
   }
-  snapshot.userId = getActiveUserId(snapshot.steamRoot);
+  snapshot.users = listSteamUsers(snapshot.steamRoot);
+  snapshot.userId = pickUserId(snapshot.steamRoot, options.userId);
   if (!snapshot.userId) {
     return snapshot;
   }

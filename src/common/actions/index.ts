@@ -708,6 +708,10 @@ export const actions = wireActions({
     /** mode to pre-stage for that game; applied once its target resolves */
     mode?: SteamShortcutMode;
   }>(),
+  steamShortcutsSelectUser: action<{
+    /** Steam account id (userdata folder) to manage shortcuts for */
+    userId: string;
+  }>(),
   steamShortcutsSave: action<{
     /** installed games whose shortcuts should be created or refreshed */
     ensure: { gameId: number; mode: SteamShortcutMode }[];

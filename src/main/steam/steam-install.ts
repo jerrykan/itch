@@ -4,6 +4,12 @@ import { homedir } from "os";
 import { join } from "path";
 import { processes } from "systeminformation";
 import { mainLogger } from "main/logger";
+import {
+  LoginUser,
+  parseLoginUsers,
+  rankSteamUsers,
+} from "main/steam/steam-users";
+import { SteamUserSummary } from "common/types/steam";
 
 const logger = mainLogger.child(__filename);
 
@@ -82,78 +88,55 @@ export function getSteamRoot(): string | null {
 }
 
 /**
- * The userdata folder name for the most recently logged-in Steam account,
- * from loginusers.vdf. When that gives nothing (Steam signed out, or a
- * "remember me" login never happened), falls back to the userdata folder
- * whose localconfig.vdf Steam touched last; null when there are none.
+ * Accounts with a userdata folder, joined with loginusers.vdf for names,
+ * best default first; see rankSteamUsers for how the default is chosen.
  */
-export function getActiveUserId(root: string): string | null {
-  const fromLoginUsers = mostRecentLoginUser(root);
-  if (fromLoginUsers && existsSync(join(root, "userdata", fromLoginUsers))) {
-    return fromLoginUsers;
-  }
-
+export function listSteamUsers(root: string): SteamUserSummary[] {
   const userdata = join(root, "userdata");
   let folders: string[];
   try {
     folders = readdirSync(userdata, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
-      .filter((name) => name !== "0" && name !== "ac" && /^\d+$/.test(name));
+      .filter((name) => name !== "0" && name !== "ac" && /^\d+$/.test(name))
+      // Steam creates config/ on an account's first real session. A
+      // folder without one is left over from a login that never
+      // completed and holds nothing to manage.
+      .filter((name) => existsSync(join(userdata, name, "config")));
   } catch (e) {
     logger.warn(`could not list ${userdata}: ${e}`);
-    return null;
+    return [];
   }
   if (folders.length === 0) {
-    logger.warn(
-      `no Steam user found: loginusers.vdf gave ${fromLoginUsers}, ` +
-        `no account folders in ${userdata}`
-    );
-    return null;
-  }
-  if (folders.length === 1) {
-    return folders[0];
+    return [];
   }
 
+  let loginUsers = new Map<string, LoginUser>();
+  try {
+    loginUsers = parseLoginUsers(
+      readFileSync(join(root, "config", "loginusers.vdf"), "utf8")
+    );
+  } catch (e) {
+    // missing (never signed in with "remember me") or unparsable: the
+    // folders still list, unnamed
+    logger.warn(`could not read loginusers.vdf: ${e}`);
+  }
   // Steam rewrites localconfig.vdf throughout a session, so the newest
   // one belongs to the account that was signed in last
-  const lastActiveAt = (name: string): number => {
+  const lastActiveAt = (id: string): number => {
     try {
-      return statSync(join(userdata, name, "config", "localconfig.vdf"))
-        .mtimeMs;
+      return statSync(join(userdata, id, "config", "localconfig.vdf")).mtimeMs;
     } catch (e) {
       return -1;
     }
   };
-  folders.sort((a, b) => lastActiveAt(b) - lastActiveAt(a));
-  logger.warn(
-    `loginusers.vdf gave ${fromLoginUsers}, picking ${folders[0]} ` +
-      `by activity from ${folders.length} accounts in ${userdata}`
-  );
-  return folders[0];
-}
-
-function mostRecentLoginUser(root: string): string | null {
-  let text: string;
-  try {
-    text = readFileSync(join(root, "config", "loginusers.vdf"), "utf8");
-  } catch (e) {
-    return null;
+  const users = rankSteamUsers(folders, loginUsers, lastActiveAt);
+  if (users.length > 1) {
+    logger.info(
+      `${users.length} Steam accounts in ${userdata}, defaulting to ${users[0].id}`
+    );
   }
-
-  let currentId: string | null = null;
-  for (const line of text.split("\n")) {
-    const idMatch = /^\s*"(7656\d{13})"\s*$/.exec(line);
-    if (idMatch) {
-      currentId = idMatch[1];
-      continue;
-    }
-    if (currentId && /"mostrecent"\s+"1"/i.test(line)) {
-      // steamid64 -> account id (the userdata folder name)
-      return (BigInt(currentId) & 0xffffffffn).toString();
-    }
-  }
-  return null;
+  return users;
 }
 
 export async function isSteamRunning(): Promise<boolean> {

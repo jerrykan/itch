@@ -67,6 +67,8 @@ export interface SteamShortcutsParams {
   initialMode?: SteamShortcutMode;
   /** a save is currently being applied in the main process */
   saving: boolean;
+  /** the snapshot is being reloaded for another account */
+  loading: boolean;
   /** completed/total games whose shortcut data and artwork are being ensured */
   saveProgress: { completed: number; total: number } | null;
   /**

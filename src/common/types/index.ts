@@ -554,6 +554,9 @@ export interface PreferencesState {
   /** whether or not we've already imported appdata as an install location */
   importedOldInstallLocations: boolean;
 
+  /** Steam account (userdata folder) last chosen in the Steam shortcuts dialog */
+  steamUserId?: string;
+
   /** Recently-used directories from the Push new build modal, persisted
    *  so the modal's Recent folders list survives app restarts. Most
    *  recent first, capped at MAX_RECENT_PUSH_FOLDERS. */

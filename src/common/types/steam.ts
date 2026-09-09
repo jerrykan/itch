@@ -40,6 +40,15 @@ export interface SteamShortcutEntrySummary {
   missingCompatTool: boolean;
 }
 
+/** a Steam account with a userdata folder on this machine */
+export interface SteamUserSummary {
+  /** account id: the userdata folder name */
+  id: string;
+  /** from loginusers.vdf; null for a folder Steam no longer lists */
+  accountName: string | null;
+  personaName: string | null;
+}
+
 /**
  * Point-in-time view of the Steam shortcuts file, for the management
  * dialog. Failures are folded into fields rather than thrown so the
@@ -47,7 +56,10 @@ export interface SteamShortcutEntrySummary {
  */
 export interface SteamShortcutsSnapshot {
   steamRoot: string | null;
+  /** account the snapshot describes: the requested one, else the default */
   userId: string | null;
+  /** every account on this machine, default first; a picker shows for 2+ */
+  users: SteamUserSummary[];
   shortcutsPath: string | null;
   fileExists: boolean;
   fileSize: number | null;

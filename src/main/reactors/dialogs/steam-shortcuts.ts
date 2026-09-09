@@ -85,6 +85,7 @@ function updateSaveState(store: Store) {
           ...current,
           saving: saveInProgress,
           saveProgress,
+          loading: false,
         },
       })
     )
@@ -284,7 +285,7 @@ async function refreshDialog(
   if (!previous) {
     return;
   }
-  const snapshot = await getSnapshot();
+  const snapshot = await getSnapshot({ userId: previous.snapshot.userId });
   snapshot.lastOpError = lastOpError;
   const installedGames = await fetchInstalledGamesWithFallback(
     store,
@@ -302,6 +303,7 @@ async function refreshDialog(
           installedGames,
           saving: saveInProgress,
           saveProgress,
+          loading: false,
           directTargets: previous.directTargets,
         },
       })
@@ -310,6 +312,49 @@ async function refreshDialog(
   refreshDirectTargets(store).catch((e) => {
     logger.warn(`could not refresh direct launch targets: ${e}`);
   });
+}
+
+// Only the account's shortcuts.vdf differs between accounts: the
+// installed games, direct targets and Steam's running state carry over,
+// so a switch reads one file instead of enumerating processes and
+// asking butlerd again.
+let switchGeneration = 0;
+
+async function switchAccount(store: Store, userId: string) {
+  const modalId = openModalId;
+  if (!modalId) {
+    return;
+  }
+  const previous = dialogParams(store, modalId);
+  if (!previous) {
+    return;
+  }
+  // a later selection supersedes this one, whichever file read finishes first
+  const generation = ++switchGeneration;
+  store.dispatch(
+    actions.updateModalWidgetParams(
+      modals.steamShortcuts.update({
+        id: modalId,
+        widgetParams: { ...previous, loading: true },
+      })
+    )
+  );
+  const snapshot = await getSnapshot({
+    userId,
+    steamRunning: previous.snapshot.steamRunning,
+  });
+  const current = dialogParams(store, modalId);
+  if (generation !== switchGeneration || openModalId !== modalId || !current) {
+    return;
+  }
+  store.dispatch(
+    actions.updateModalWidgetParams(
+      modals.steamShortcuts.update({
+        id: modalId,
+        widgetParams: { ...current, snapshot, loading: false },
+      })
+    )
+  );
 }
 
 // Save is disabled in the dialog while Steam runs; poll so quitting
@@ -379,7 +424,9 @@ export default function (watcher: Watcher) {
       stopSteamPoll();
     }
 
-    const snapshot = await getSnapshot();
+    const snapshot = await getSnapshot({
+      userId: store.getState().preferences.steamUserId,
+    });
     let installedGames: Game[] = [];
     try {
       installedGames = await fetchInstalledGames();
@@ -401,6 +448,7 @@ export default function (watcher: Watcher) {
         initialMode: mode,
         saving: saveInProgress,
         saveProgress,
+        loading: false,
         directTargets: null,
       },
     });
@@ -410,6 +458,15 @@ export default function (watcher: Watcher) {
     refreshDirectTargets(store).catch((e) => {
       logger.warn(`could not resolve direct launch targets: ${e}`);
     });
+  });
+
+  watcher.on(actions.steamShortcutsSelectUser, async (store, action) => {
+    const { userId } = action.payload;
+    if (saveInProgress || !currentDialogParams(store)) {
+      return;
+    }
+    store.dispatch(actions.updatePreferences({ steamUserId: userId }));
+    await switchAccount(store, userId);
   });
 
   watcher.on(actions.steamShortcutsSave, async (store, action) => {
@@ -473,6 +530,7 @@ export default function (watcher: Watcher) {
         ensure,
         repairGameIds,
         removeGameIds,
+        userId: currentDialogParams(store)?.snapshot.userId,
         onProgress: (completed, total) => {
           saveProgress = { completed, total };
           updateSaveState(store);

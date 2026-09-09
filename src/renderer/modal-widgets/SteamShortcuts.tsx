@@ -6,7 +6,11 @@ import {
   SteamShortcutsResponse,
 } from "common/modals/types";
 import { Dispatch, LocalizedString } from "common/types";
-import { SteamDirectTarget, SteamShortcutMode } from "common/types/steam";
+import {
+  SteamDirectTarget,
+  SteamShortcutMode,
+  SteamUserSummary,
+} from "common/types/steam";
 import { ambientWind } from "common/util/navigation";
 import { lighten, transparentize } from "polished";
 import React from "react";
@@ -20,7 +24,9 @@ import { ModalButtons } from "renderer/basics/modal-styles";
 import Filler from "renderer/basics/Filler";
 import { ModalWidgetDiv } from "renderer/modal-widgets/styles";
 import styled, { squircle } from "renderer/styles";
-import { T } from "renderer/t";
+import { T, TString } from "renderer/t";
+import { IntlShape } from "react-intl";
+import { injectIntl } from "renderer/hocs/injectIntl";
 
 const Container = styled.div`
   display: flex;
@@ -62,6 +68,54 @@ const Callout = styled.div`
     .icon {
       color: ${(props) => lighten(0.08, props.theme.error)};
     }
+  }
+`;
+
+const AccountRow = styled.div`
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  font-size: ${(props) => props.theme.fontSizes.smaller};
+  color: ${(props) => props.theme.secondaryText};
+
+  .filler {
+    flex-grow: 1;
+  }
+
+  select {
+    min-width: 260px;
+    padding: 6px 8px;
+    background: ${(props) => props.theme.itemBackground};
+    border: 1px solid ${(props) => props.theme.inputBorder};
+    border-radius: 2px;
+    color: ${(props) => props.theme.baseText};
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+
+    &:hover:not(:disabled) {
+      border-color: ${(props) => props.theme.inputBorderFocused};
+    }
+
+    &:disabled {
+      cursor: default;
+      opacity: 0.5;
+    }
+  }
+`;
+
+// dims the account-specific parts while another account's file loads;
+// the controls disable separately so keyboard focus can't reach them
+const Body = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: opacity 0.15s;
+
+  &.loading {
+    opacity: 0.45;
+    pointer-events: none;
   }
 `;
 
@@ -310,6 +364,7 @@ interface RowData {
 interface Props
   extends ModalWidgetProps<SteamShortcutsParams, SteamShortcutsResponse> {
   dispatch: Dispatch;
+  intl: IntlShape;
 }
 
 interface State {
@@ -380,8 +435,10 @@ function rowsOf(params: SteamShortcutsParams): RowData[] {
   );
 }
 
+// the account is part of the key: its entries are a different file, so
+// staged changes against the previous account are dropped on a switch
 function baselineKeyOf(params: SteamShortcutsParams): string {
-  return rowsOf(params)
+  const rows = rowsOf(params)
     .map(
       (r) =>
         `${r.gameId}:${r.installed ? 1 : 0}${r.inSteam ? 1 : 0}${
@@ -389,6 +446,12 @@ function baselineKeyOf(params: SteamShortcutsParams): string {
         }`
     )
     .join(",");
+  return `${params.snapshot.userId ?? ""}|${rows}`;
+}
+
+function userLabel(user: SteamUserSummary): string {
+  const name = user.personaName ?? user.accountName;
+  return name ? `${name} (${user.id})` : user.id;
 }
 
 function baselineChecked(params: SteamShortcutsParams): State["checked"] {
@@ -483,7 +546,8 @@ class SteamShortcuts extends React.PureComponent<Props, State> {
   }
 
   renderBody() {
-    const { snapshot, saving } = this.props.modal.widgetParams;
+    const { snapshot, loading } = this.props.modal.widgetParams;
+    const saving = this.busy();
 
     if (!snapshot.steamRoot) {
       return this.renderUnavailable(["steam.error.not_found"]);
@@ -496,52 +560,60 @@ class SteamShortcuts extends React.PureComponent<Props, State> {
     return (
       <>
         <Intro>{T(["steam.dialog.intro"])}</Intro>
-        <List>
-          <ListHeader>
-            <div className="label">{T(["steam.dialog.list_header"])}</div>
-            <MiniButton
-              disabled={saving}
-              onClick={this.onAddInstalled}
-              data-rh={JSON.stringify(["steam.dialog.add_installed_hint"])}
-              data-rh-at="top"
-            >
-              <Icon icon="plus" />
-              {T(["steam.dialog.add_installed"])}
-            </MiniButton>
-            <MiniButton
-              disabled={saving}
-              onClick={this.onRemoveMissing}
-              data-rh={JSON.stringify(["steam.dialog.remove_missing_hint"])}
-              data-rh-at="top"
-            >
-              <Icon icon="uninstall" />
-              {T(["steam.dialog.remove_missing"])}
-            </MiniButton>
-            <MiniButton
-              disabled={saving}
-              onClick={this.onRemoveAll}
-              data-rh={JSON.stringify(["steam.dialog.remove_all_hint"])}
-              data-rh-at="top"
-            >
-              <Icon icon="uninstall" />
-              {T(["steam.dialog.remove_all"])}
-            </MiniButton>
-          </ListHeader>
-          <Rows>
-            {rows.length === 0 ? (
-              <Row as="div">
-                <span className="hint">{T(["steam.dialog.empty"])}</span>
-              </Row>
-            ) : (
-              rows.map((row) => this.renderRow(row))
-            )}
-          </Rows>
-        </List>
-        {this.renderDirectCallouts(rows)}
-        {this.renderDetailsLine(rows)}
+        {this.renderAccountRow()}
+        <Body className={loading ? "loading" : ""}>
+          <List>
+            <ListHeader>
+              <div className="label">{T(["steam.dialog.list_header"])}</div>
+              <MiniButton
+                disabled={saving}
+                onClick={this.onAddInstalled}
+                data-rh={JSON.stringify(["steam.dialog.add_installed_hint"])}
+                data-rh-at="top"
+              >
+                <Icon icon="plus" />
+                {T(["steam.dialog.add_installed"])}
+              </MiniButton>
+              <MiniButton
+                disabled={saving}
+                onClick={this.onRemoveMissing}
+                data-rh={JSON.stringify(["steam.dialog.remove_missing_hint"])}
+                data-rh-at="top"
+              >
+                <Icon icon="uninstall" />
+                {T(["steam.dialog.remove_missing"])}
+              </MiniButton>
+              <MiniButton
+                disabled={saving}
+                onClick={this.onRemoveAll}
+                data-rh={JSON.stringify(["steam.dialog.remove_all_hint"])}
+                data-rh-at="top"
+              >
+                <Icon icon="uninstall" />
+                {T(["steam.dialog.remove_all"])}
+              </MiniButton>
+            </ListHeader>
+            <Rows>
+              {rows.length === 0 ? (
+                <Row as="div">
+                  <span className="hint">{T(["steam.dialog.empty"])}</span>
+                </Row>
+              ) : (
+                rows.map((row) => this.renderRow(row))
+              )}
+            </Rows>
+          </List>
+          {this.renderDirectCallouts(rows)}
+          {this.renderDetailsLine(rows)}
+        </Body>
         {this.renderFooter(rows)}
       </>
     );
+  }
+
+  busy(): boolean {
+    const { saving, loading } = this.props.modal.widgetParams;
+    return saving || loading;
   }
 
   renderDirectCallouts(rows: RowData[]) {
@@ -571,6 +643,42 @@ class SteamShortcuts extends React.PureComponent<Props, State> {
     );
   }
 
+  renderAccountRow() {
+    const { snapshot, loading } = this.props.modal.widgetParams;
+    if (snapshot.users.length < 2 || !snapshot.userId) {
+      return null;
+    }
+    return (
+      <AccountRow>
+        <Icon icon="steam" />
+        <span>{T(["steam.dialog.account"])}</span>
+        <span className="filler" />
+        {loading ? <LoadingCircle progress={-1} /> : null}
+        <select
+          value={snapshot.userId}
+          disabled={this.busy()}
+          onChange={(e) =>
+            this.props.dispatch(
+              actions.steamShortcutsSelectUser({
+                userId: e.currentTarget.value,
+              })
+            )
+          }
+        >
+          {snapshot.users.map((user) => (
+            <option key={user.id} value={user.id}>
+              {user.personaName ?? user.accountName
+                ? userLabel(user)
+                : `${TString(this.props.intl, [
+                    "steam.dialog.account_unknown",
+                  ])} (${user.id})`}
+            </option>
+          ))}
+        </select>
+      </AccountRow>
+    );
+  }
+
   renderUnavailable(message: string[]) {
     return (
       <>
@@ -587,7 +695,7 @@ class SteamShortcuts extends React.PureComponent<Props, State> {
   }
 
   renderRow(row: RowData) {
-    const { saving } = this.props.modal.widgetParams;
+    const saving = this.busy();
     const checked = !!this.state.checked[row.gameId];
     const willAdd = checked && !row.inSteam;
     const willRemove = !checked && row.inSteam;
@@ -644,7 +752,7 @@ class SteamShortcuts extends React.PureComponent<Props, State> {
   }
 
   renderModeControl(row: RowData, checked: boolean) {
-    const { saving } = this.props.modal.widgetParams;
+    const saving = this.busy();
     if (!row.installed || !checked) {
       return null;
     }
@@ -714,7 +822,12 @@ class SteamShortcuts extends React.PureComponent<Props, State> {
             {snapshot.steamRoot}
           </div>
           <div className="label">{T(["steam.dialog.details.user"])}</div>
-          <div className="value mono">{snapshot.userId}</div>
+          <div className="value mono">
+            {(() => {
+              const user = snapshot.users.find((u) => u.id === snapshot.userId);
+              return user ? userLabel(user) : snapshot.userId;
+            })()}
+          </div>
           <div className="label">{T(["steam.dialog.details.file"])}</div>
           <div className="value mono" title={snapshot.shortcutsPath ?? ""}>
             {snapshot.fileExists ? file : T(["steam.dialog.details.missing"])}
@@ -828,6 +941,7 @@ class SteamShortcuts extends React.PureComponent<Props, State> {
 
   renderFooter(rows: RowData[]) {
     const { snapshot, saving } = this.props.modal.widgetParams;
+    const busy = this.busy();
     const { toAdd, toRemove, toUpdate } = this.pendingChanges(rows);
     const dirty =
       toAdd.length > 0 || toRemove.length > 0 || toUpdate.length > 0;
@@ -838,7 +952,7 @@ class SteamShortcuts extends React.PureComponent<Props, State> {
         <Filler />
         <Button
           primary
-          disabled={saving || !dirty || snapshot.steamRunning}
+          disabled={busy || !dirty || snapshot.steamRunning}
           iconComponent={saving ? <LoadingCircle progress={-1} /> : undefined}
           label={T([saving ? "steam.dialog.saving" : "steam.dialog.save"])}
           onClick={this.onSave}
@@ -927,7 +1041,7 @@ class SteamShortcuts extends React.PureComponent<Props, State> {
   };
 
   onSave = () => {
-    if (this.props.modal.widgetParams.saving) {
+    if (this.busy()) {
       return;
     }
     const rows = rowsOf(this.props.modal.widgetParams);
@@ -956,4 +1070,4 @@ class SteamShortcuts extends React.PureComponent<Props, State> {
   };
 }
 
-export default hook()(SteamShortcuts);
+export default injectIntl(hook()(SteamShortcuts));
