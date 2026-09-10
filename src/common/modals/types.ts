@@ -211,3 +211,8 @@ export interface ConfirmDeleteCollectionParams {
   tab?: string;
 }
 export interface ConfirmDeleteCollectionResponse {}
+
+export interface OrderCollectionGamesParams {
+  collection: Collection;
+}
+export interface OrderCollectionGamesResponse {}

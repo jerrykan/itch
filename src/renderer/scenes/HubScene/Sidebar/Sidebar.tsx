@@ -1,4 +1,5 @@
 import classNames from "classnames";
+import { arrayMove } from "common/util/array-move";
 import { selectHasInFlightPush } from "common/reducers/upload";
 import {
   ambientNavigation,
@@ -95,10 +96,9 @@ class Sidebar extends React.PureComponent<Props, State> {
   };
 
   onSortEnd = (oldIndex: number, newIndex: number) => {
-    const openTabs = [...this.state.openTabs];
-    const [moved] = openTabs.splice(oldIndex, 1);
-    openTabs.splice(newIndex, 0, moved);
-    this.setState({ openTabs });
+    this.setState({
+      openTabs: arrayMove(this.state.openTabs, oldIndex, newIndex),
+    });
     const { dispatch } = this.props;
     dispatch(
       actions.moveTab({

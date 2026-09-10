@@ -17,6 +17,7 @@ import LoadingCircle from "renderer/basics/LoadingCircle";
 import { rcall } from "renderer/butlerd/rcall";
 import { doAsync } from "renderer/helpers/doAsync";
 import { hook } from "renderer/hocs/hook";
+import { closeModal, setModalUnclosable } from "renderer/helpers/modal";
 import { ModalButtons } from "renderer/basics/modal-styles";
 import { ModalWidgetDiv } from "renderer/modal-widgets/styles";
 import styled from "renderer/styles";
@@ -199,13 +200,7 @@ class EditCollection extends React.PureComponent<Props, State> {
   };
 
   onCancel = () => {
-    const { dispatch } = this.props;
-    dispatch(
-      actions.closeModal({
-        wind: ambientWind(),
-        id: this.props.modal.id,
-      })
-    );
+    closeModal(this.props.dispatch, this.props.modal);
   };
 
   onDelete = () => {
@@ -226,17 +221,9 @@ class EditCollection extends React.PureComponent<Props, State> {
     );
   };
 
-  /** the header close button and Escape stay disabled while the request runs */
   setSaving(saving: boolean, saveError: string | null = null) {
-    const { dispatch } = this.props;
     this.setState({ saving, saveError });
-    dispatch(
-      actions.setModalUnclosable({
-        wind: ambientWind(),
-        id: this.props.modal.id,
-        unclosable: saving,
-      })
-    );
+    setModalUnclosable(this.props.dispatch, this.props.modal, saving);
   }
 
   onSave = () => {
@@ -271,12 +258,7 @@ class EditCollection extends React.PureComponent<Props, State> {
       }
       dispatch(actions.collectionsChanged({}));
       this.setSaving(false);
-      dispatch(
-        actions.closeModal({
-          wind: ambientWind(),
-          id: this.props.modal.id,
-        })
-      );
+      closeModal(dispatch, this.props.modal);
     });
   };
 }

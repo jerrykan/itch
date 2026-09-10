@@ -8,7 +8,6 @@ import {
   GameCollectionsResponse,
 } from "common/modals/types";
 import { Dispatch } from "common/types";
-import { ambientWind } from "common/util/navigation";
 import { transparentize } from "polished";
 import React from "react";
 import Button from "renderer/basics/Button";
@@ -21,6 +20,7 @@ import LoadingCircle from "renderer/basics/LoadingCircle";
 import { rcall } from "renderer/butlerd/rcall";
 import { doAsync } from "renderer/helpers/doAsync";
 import { hook } from "renderer/hocs/hook";
+import { closeModal, setModalUnclosable } from "renderer/helpers/modal";
 import { ModalButtons } from "renderer/basics/modal-styles";
 import { ModalWidgetDiv } from "renderer/modal-widgets/styles";
 import styled from "renderer/styles";
@@ -535,13 +535,7 @@ class GameCollections extends React.PureComponent<Props, State> {
   };
 
   close() {
-    const { dispatch } = this.props;
-    dispatch(
-      actions.closeModal({
-        wind: ambientWind(),
-        id: this.props.modal.id,
-      })
-    );
+    closeModal(this.props.dispatch, this.props.modal);
   }
 
   onSave = () => {
@@ -601,17 +595,9 @@ class GameCollections extends React.PureComponent<Props, State> {
     });
   };
 
-  /** the header close button and Escape stay disabled while requests run */
   setSaving(saving: boolean, saveError: string | null = null) {
-    const { dispatch } = this.props;
     this.setState({ saving, saveError });
-    dispatch(
-      actions.setModalUnclosable({
-        wind: ambientWind(),
-        id: this.props.modal.id,
-        unclosable: saving,
-      })
-    );
+    setModalUnclosable(this.props.dispatch, this.props.modal, saving);
   }
 }
 

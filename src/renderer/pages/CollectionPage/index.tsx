@@ -135,6 +135,18 @@ class CollectionPage extends React.PureComponent<Props, State> {
           ),
         },
         {
+          localizedLabel: ["collection.menu.order"],
+          enabled: collection.gamesCount > 1,
+          action: actions.openModal(
+            modals.orderCollectionGames.make({
+              wind: "root",
+              title: ["collection.order.title"],
+              message: "",
+              widgetParams: { collection },
+            })
+          ),
+        },
+        {
           localizedLabel: ["collection.menu.delete"],
           action: actions.requestCollectionDelete({
             collectionId: collection.id,
